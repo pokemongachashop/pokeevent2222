@@ -20,13 +20,13 @@ import {
 // Firebase 콘솔 > 프로젝트 설정 > 일반 > 내 앱(웹 앱)의 "SDK 설정 및 구성"에서 복사한 값을 붙여 넣으세요.
 // 이 값은 공개되어도 되는 "식별용" 값입니다. 데이터베이스 보안은 반드시 Firebase 보안 규칙으로 지켜야 합니다.
 const FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  databaseURL: "",        // 예: https://프로젝트ID-default-rtdb.asia-southeast1.firebasedatabase.app
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyBRvtClcXst_FXLjaLXtGFU0IbWUcQ-M2w",
+  authDomain: "pokeevent2222-f3c1b.firebaseapp.com",
+  databaseURL: "https://pokeevent2222-f3c1b-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "pokeevent2222-f3c1b",
+  storageBucket: "pokeevent2222-f3c1b.firebasestorage.app",
+  messagingSenderId: "635893544084",
+  appId: "1:635893544084:web:e04693e0f4cda443833081"
 };
 
 // 결과 화면 "관리자에게 문의하기" 버튼이 열 주소입니다.
@@ -39,7 +39,7 @@ const DEFAULT_ROOM_ID = "arena";
 
 // 관리자 계정 이메일 — Firebase 콘솔 Authentication에서 직접 만든 계정의 이메일을 넣으세요.
 // 화면에서는 이 계정의 "비밀번호만" 입력하면 관리자로 로그인됩니다.
-const ADMIN_EMAIL = "";
+const ADMIN_EMAIL = "pokepack1010@gmail.com";
 
 // 참가자 계정용 내부 이메일 도메인 (닉네임을 이 주소 형식으로 바꿔 Firebase에 저장합니다. 실제 메일은 보내지 않음)
 // 운영을 시작한 뒤에는 바꾸지 마세요. 바꾸면 기존 닉네임 계정으로 로그인할 수 없습니다.
