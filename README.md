@@ -88,7 +88,7 @@
 
         "players": {
           "$uid": {
-            ".write": "auth != null && $roomId.matches(/^[a-z0-9-]{1,20}$/) && ((auth.uid === $uid && auth.provider === 'password') || (!newData.exists() && data.child('online').val() === false && newData.parent().parent().child('status').val() !== 'countdown' && newData.parent().parent().child('status').val() !== 'playing'))",
+            ".write": "auth != null && $roomId.matches(/^[a-z0-9-]{1,20}$/) && ((auth.uid === $uid && auth.token.firebase.sign_in_provider === 'password') || (!newData.exists() && data.child('online').val() === false && newData.parent().parent().child('status').val() !== 'countdown' && newData.parent().parent().child('status').val() !== 'playing'))",
             ".validate": "newData.hasChildren(['nickname', 'pokemon', 'online', 'session', 'updatedAt'])",
             "nickname":   { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12 && newData.val() === auth.token.name" },
             "pokemon":    { ".validate": "newData.isString() && newData.val().matches(/^(fox|frog|penguin|bunny|duck|cat)$/)" },
@@ -103,7 +103,7 @@
             "alive":      { ".validate": "newData.isBoolean() && !(data.val() === false && newData.val() === true && data.parent().child('round').val() === newData.parent().child('round').val())" },
             "survivalMs": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 181000" },
             "reachedAt":  { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 181000" },
-            "cause":      { ".validate": "newData.isString() && newData.val().matches(/^(|car|train|water|edge|left)$/)" },
+            "cause":      { ".validate": "newData.isString() && (newData.val() === '' || newData.val().matches(/^(car|train|water|edge|left)$/))" },
             "finished":   { ".validate": "newData.isBoolean()" },
             "admin":      { ".validate": "newData.isBoolean() && (newData.val() === false || root.child('admins').child($uid).val() === true)" },
             "spectator":  { ".validate": "newData.isBoolean() && (newData.val() === false || root.child('admins').child($uid).val() === true)" },
