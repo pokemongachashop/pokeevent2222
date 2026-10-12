@@ -21,12 +21,24 @@ import {
 // 이 값은 공개되어도 되는 "식별용" 값입니다. 데이터베이스 보안은 반드시 Firebase 보안 규칙으로 지켜야 합니다.
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyBRvtClcXst_FXLjaLXtGFU0IbWUcQ-M2w",
-  authDomain: "pokeevent2222-f3c1b.firebaseapp.com",
-  databaseURL: "https://pokeevent2222-f3c1b-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "pokeevent2222-f3c1b",
-  storageBucket: "pokeevent2222-f3c1b.firebasestorage.app",
-  messagingSenderId: "635893544084",
-  appId: "1:635893544084:web:e04693e0f4cda443833081"
+
+
+  authDomain: "pokeevent2222-f3c1b.firebaseapp.com",
+
+
+  databaseURL: "https://pokeevent2222-f3c1b-default-rtdb.asia-southeast1.firebasedatabase.app",
+
+
+  projectId: "pokeevent2222-f3c1b",
+
+
+  storageBucket: "pokeevent2222-f3c1b.firebasestorage.app",
+
+
+  messagingSenderId: "635893544084",
+
+
+  appId: "1:635893544084:web:e04693e0f4cda443833081"
 };
 
 // 결과 화면 "관리자에게 문의하기" 버튼이 열 주소입니다.
@@ -53,7 +65,7 @@ const GAME = Object.freeze({
   MIN_PLAYERS: 2,
   COUNTDOWN_MS: 25000,      // 경기 시작 전 카운트다운 (보안 규칙의 60초 제한 이내)
   PRACTICE_COUNTDOWN_MS: 3000,
-  MATCH_MS: 180000,         // 경기 시간 (보안 규칙의 endAt = startAt + 180000 과 같아야 함)
+  MATCH_MS: 600000,         // 경기 시간 (보안 규칙의 endAt = startAt + 180000 과 같아야 함)
   SYNC_INTERVAL_MS: 300,    // 위치 전송 간격 (250~350ms)
   MOVE_COOLDOWN_MS: 140,    // 연속 이동 최소 간격
   HOP_MS: 120,              // 한 칸 점프 시간
@@ -1231,6 +1243,26 @@ async function adminLogout() {
   await refreshAdminUi();
 }
 
+// 입장 쓰기가 거부되었을 때 원인을 좁혀서 안내
+async function diagnoseJoinFailure(user, err) {
+  const code = (err && (err.code || err.message)) || "알 수 없는 오류";
+  try {
+    const tok = await user.getIdTokenResult(true);
+    if (tok.signInProvider !== "password") {
+      return `방에 입장하지 못했습니다. 로그인 방식이 이메일/비밀번호가 아닙니다(${tok.signInProvider}). 로그아웃 후 닉네임과 비밀번호로 다시 로그인해 주세요.`;
+    }
+    if (!tok.claims.name || tok.claims.name !== S.nickname) {
+      return "방에 입장하지 못했습니다. 계정의 닉네임 정보가 아직 반영되지 않았습니다. 새로고침 후 다시 시도해 주세요.";
+    }
+  } catch (e) { /* 토큰 확인 실패는 무시하고 다음 단계 진행 */ }
+  try {
+    await get(ref(db, `admins/${user.uid}`));
+  } catch (e) {
+    return "방에 입장하지 못했습니다. Firebase 보안 규칙이 최신 버전이 아닙니다. README 4단계의 규칙 전체를 Realtime Database → 규칙 탭에 덮어쓰고 '게시'를 눌러 주세요. (PERMISSION_DENIED)";
+  }
+  return `방에 입장하지 못했습니다. Firebase 보안 규칙을 README 4단계와 똑같이 붙여 넣었는지, 이메일/비밀번호 로그인이 켜져 있는지 확인해 주세요. (${code})`;
+}
+
 /* ---------- 방 입장 ---------- */
 async function joinRoom() {
   if (S.busy || S.inRoom) return;
@@ -1264,6 +1296,8 @@ async function joinRoom() {
     store("pca.nickname", S.nickname);
     refreshSessionUi();
     S.uid = user.uid;
+    // 닉네임이 담긴 최신 로그인 토큰으로 데이터베이스에 연결 (보안 규칙의 auth.token.name 검사용)
+    await user.getIdToken(true);
     goOnline(db);
     const connected = await attachInfoListeners();
     if (!connected) throw new UserError("Firebase에 연결할 수 없습니다. 인터넷 연결과 databaseURL 설정을 확인해 주세요.");
@@ -1288,7 +1322,7 @@ async function joinRoom() {
 
     const base = `players/${S.uid}`;
     const payload = {
-      [`${base}/nickname`]: nick,
+      [`${base}/nickname`]: S.nickname,
       [`${base}/pokemon`]: S.charId,
       [`${base}/online`]: true,
       [`${base}/session`]: S.session,
@@ -1311,7 +1345,7 @@ async function joinRoom() {
     try {
       await update(ref(db, roomPath()), payload);
     } catch (e) {
-      throw new UserError(`방에 입장하지 못했습니다. Firebase 보안 규칙이 올바르게 설정되었는지 확인해 주세요. (${e.code || e.message})`);
+      throw new UserError(await diagnoseJoinFailure(user, e));
     }
 
     // 진행 중인 경기가 없으면 오래된(연결 끊긴) 참가자 데이터 정리
