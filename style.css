@@ -199,6 +199,49 @@ input[type="password"]:focus { border-color: var(--blue); background: #fff; }
   cursor: pointer;
 }
 
+/* ---------- 최근 경기 1등 ---------- */
+.history-box {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, #fff8dc, #ffefb8);
+  border: 2px solid #f2c94c;
+}
+
+.history-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-family: var(--font-kr);
+  font-weight: 400;
+  font-size: 17px;
+  color: var(--navy);
+}
+
+.history-room-tag { font-family: var(--font-ui); font-size: 12px; font-weight: 800; color: #8a6a00; }
+
+.history-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+
+.history-list li {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  grid-template-areas: "round name stat" "round date date";
+  align-items: center;
+  column-gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.history-list li:first-child { outline: 2px solid var(--yellow-d); }
+.h-round { grid-area: round; font-family: var(--font-display); font-weight: 700; color: var(--blue); font-size: 15px; }
+.h-name { grid-area: name; font-weight: 800; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-stat { grid-area: stat; font-family: var(--font-display); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+.h-date { grid-area: date; font-size: 11px; color: var(--muted); }
+.history-empty { margin: 0; font-size: 12px; color: #6b5300; }
+
 /* ---------- 관리자 로그인 ---------- */
 .admin-box {
   margin-top: 14px;
