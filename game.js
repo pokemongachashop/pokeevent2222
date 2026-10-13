@@ -9,7 +9,8 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getDatabase, ref, get, update, remove, onValue, onChildAdded, onChildChanged,
+  getDatabase, ref, get, set, update, remove, onValue, onChildAdded, onChildChanged,
+  query, orderByKey, limitToLast,
   onChildRemoved, onDisconnect, serverTimestamp, goOnline, goOffline
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
@@ -63,9 +64,9 @@ const PLAYER_EMAIL_DOMAIN = "players.crossing-arena.example.com";
 const GAME = Object.freeze({
   MAX_PLAYERS: 20,
   MIN_PLAYERS: 2,
-  COUNTDOWN_MS: 25000,      // 경기 시작 전 카운트다운 (보안 규칙의 60초 제한 이내)
+  COUNTDOWN_MS: 10000,      // 경기 시작 전 카운트다운 (보안 규칙의 60초 제한 이내)
   PRACTICE_COUNTDOWN_MS: 3000,
-  MATCH_MS: 600000,         // 경기 시간 (보안 규칙의 endAt = startAt + 180000 과 같아야 함)
+  MATCH_MS: 180000,         // 경기 시간 (보안 규칙의 endAt = startAt + 180000 과 같아야 함)
   SYNC_INTERVAL_MS: 300,    // 위치 전송 간격 (250~350ms)
   MOVE_COOLDOWN_MS: 140,    // 연속 이동 최소 간격
   HOP_MS: 120,              // 한 칸 점프 시간
@@ -1203,9 +1204,9 @@ async function refreshAdminUi() {
   }
   $("admin-uid").textContent = user.uid;
   $("admin-status").textContent = "관리자 권한을 확인하는 중…";
-  if (!S.inRoom) goOnline(db);
+  leaseOnline();
   const ok = await fetchAdminFlag(user);
-  if (!S.inRoom) goOffline(db);
+  releaseOnline();
   S.isAdmin = ok;
   $("admin-box-label").textContent = ok ? "관리자로 로그인됨" : "관리자 로그인 (권한 없음)";
   $("admin-status").textContent = ok
@@ -1261,6 +1262,100 @@ async function diagnoseJoinFailure(user, err) {
     return "방에 입장하지 못했습니다. Firebase 보안 규칙이 최신 버전이 아닙니다. README 4단계의 규칙 전체를 Realtime Database → 규칙 탭에 덮어쓰고 '게시'를 눌러 주세요. (PERMISSION_DENIED)";
   }
   return `방에 입장하지 못했습니다. Firebase 보안 규칙을 README 4단계와 똑같이 붙여 넣었는지, 이메일/비밀번호 로그인이 켜져 있는지 확인해 주세요. (${code})`;
+}
+
+/* ---------- 최근 경기 1등 기록 ----------
+   경기가 끝나면 관리자 브라우저만 rooms/{방}/history/{회차} 에 상위 3명을 저장합니다. (보안 규칙도 관리자만 허용)
+   메인 화면에서는 로그인 없이 최근 5회의 1등을 볼 수 있습니다.
+------------------------------------------ */
+const HISTORY_SHOW = 5;
+const HISTORY_KEEP = 30;
+let historyTimer = 0;
+let historySeq = 0;
+let onlineLeases = 0;
+
+// 방 밖에서 잠깐 데이터베이스에 연결했다가 끊기
+function leaseOnline() {
+  onlineLeases++;
+  goOnline(db);
+}
+
+function releaseOnline() {
+  onlineLeases = Math.max(0, onlineLeases - 1);
+  if (!onlineLeases && !S.inRoom) goOffline(db);
+}
+
+function saveHistory(m, list) {
+  if (S.practice || !db || !S.isAdmin || !list.length) return;
+  const top = list.slice(0, 3).map((e) => ({
+    nickname: e.nickname,
+    distance: e.distance,
+    survivalMs: Math.round(e.survivalMs),
+    result: outcomeText(e)
+  }));
+  const base = `${roomPath()}/history`;
+  set(ref(db, `${base}/${m.round}`), {
+    round: m.round,
+    endedAt: serverTimestamp(),
+    count: list.length,
+    top
+  }).catch((e) => console.warn("기록 저장 실패", e && e.code));
+  if (m.round > HISTORY_KEEP) remove(ref(db, `${base}/${m.round - HISTORY_KEEP}`)).catch(() => {});
+}
+
+function formatDate(ms) {
+  const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return "";
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function renderHistory(roomId, rows, message) {
+  $("history-room").textContent = roomId || "-";
+  const ol = $("history-list");
+  ol.textContent = "";
+  $("history-empty").textContent = message || "";
+  show("history-empty", Boolean(message));
+  for (const h of rows) {
+    const first = Array.isArray(h.top) ? h.top[0] : (h.top && h.top[0]);
+    if (!first) continue;
+    const li = document.createElement("li");
+    const rd = document.createElement("span");
+    rd.className = "h-round";
+    rd.textContent = `${num(h.round)}회`;
+    const nm = document.createElement("span");
+    nm.className = "h-name";
+    nm.textContent = cleanNickname(first.nickname) || "참가자";
+    const st = document.createElement("span");
+    st.className = "h-stat";
+    st.textContent = `${num(first.distance)}칸 · ${formatSec(num(first.survivalMs))}`;
+    const dt = document.createElement("span");
+    dt.className = "h-date";
+    dt.textContent = `${formatDate(num(h.endedAt))} · ${num(h.count)}명`;
+    li.append(rd, nm, st, dt);
+    ol.append(li);
+  }
+}
+
+async function loadHistory() {
+  if (!FIREBASE_READY || !db) { show("history-box", false); return; }
+  if (S.mode !== "menu") return;
+  const roomId = $("input-room").value.trim().toLowerCase();
+  if (!/^[a-z0-9-]{1,20}$/.test(roomId)) { renderHistory(roomId, [], "올바른 방 코드를 입력하면 기록이 표시됩니다."); return; }
+  const seq = ++historySeq;
+  renderHistory(roomId, [], "불러오는 중…");
+  leaseOnline();
+  try {
+    const snap = await get(query(ref(db, `rooms/${roomId}/history`), orderByKey(), limitToLast(HISTORY_SHOW)));
+    if (seq !== historySeq) return;
+    const rows = [];
+    snap.forEach((c) => { const v = c.val(); if (v && typeof v === "object") rows.push(v); });
+    rows.sort((a, b) => num(b.round) - num(a.round));
+    renderHistory(roomId, rows, rows.length ? "" : "아직 기록된 경기가 없습니다.");
+  } catch (e) {
+    if (seq === historySeq) renderHistory(roomId, [], "기록을 불러오지 못했습니다. 보안 규칙(history)을 확인해 주세요.");
+  } finally {
+    releaseOnline();
+  }
 }
 
 /* ---------- 방 입장 ---------- */
@@ -2015,6 +2110,7 @@ function showResults() {
 
   // 결과 화면에 도달하면 참가자 실시간 구독 중단 (방 상태 구독만 유지)
   detach(S.unsubPlayers);
+  saveHistory(m, list);
 
   const mine = list.find((e) => e.me);
   const badge = $("result-rank");
@@ -2123,6 +2219,7 @@ async function leaveRoom({ keepNode = false, message = "" } = {}) {
   setCourse(DEMO_SEED);
   showScreen("menu");
   menuError(message);
+  loadHistory();
   S.leaving = false;
 }
 
@@ -2280,9 +2377,9 @@ function renderLobby() {
   let hint;
   if (active) hint = "이전 경기가 정리되는 중입니다. 잠시만 기다려 주세요.";
   else if (S.isAdmin) hint = enough
-    ? "모두 모이면 경기 시작을 눌러 주세요. 25초 카운트다운 후 출발합니다."
+    ? "모두 모이면 경기 시작을 눌러 주세요. 10초 카운트다운 후 출발합니다."
     : `참가자가 ${GAME.MIN_PLAYERS}명 이상 모이면 경기를 시작할 수 있어요.`;
-  else if (adminHere) hint = "관리자가 경기를 시작하면 25초 카운트다운 후 자동으로 출발합니다.";
+  else if (adminHere) hint = "관리자가 경기를 시작하면 10초 카운트다운 후 자동으로 출발합니다.";
   else hint = "아직 관리자가 대기실에 없습니다. 관리자가 입장해 경기를 시작할 때까지 기다려 주세요.";
   $("lobby-hint").textContent = hint;
   updateLobbyScene(runners);
@@ -2602,6 +2699,10 @@ function bindButtons() {
   });
   $("input-nickname").addEventListener("keydown", (e) => { if (e.key === "Enter") joinRoom(); });
   $("input-room").addEventListener("keydown", (e) => { if (e.key === "Enter") joinRoom(); });
+  $("input-room").addEventListener("input", () => {
+    clearTimeout(historyTimer);
+    historyTimer = setTimeout(loadHistory, 700);
+  });
 }
 
 /* ==========================================================================
@@ -2640,6 +2741,7 @@ function init() {
   bindInput();
   setCourse(DEMO_SEED);
   showScreen("menu");
+  loadHistory();
   if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
   window.addEventListener("resize", resize);
   resize();
