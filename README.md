@@ -86,6 +86,14 @@
           ".validate": "newData.isNumber() && newData.val() <= now"
         },
 
+        "history": {
+          ".read": true,
+          "$round": {
+            ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+            ".validate": "newData.hasChildren(['round', 'endedAt', 'count', 'top'])"
+          }
+        },
+
         "players": {
           "$uid": {
             ".write": "auth != null && $roomId.matches(/^[a-z0-9-]{1,20}$/) && ((auth.uid === $uid && auth.token.firebase.sign_in_provider === 'password') || (!newData.exists() && data.child('online').val() === false && newData.parent().parent().child('status').val() !== 'countdown' && newData.parent().parent().child('status').val() !== 'playing'))",
@@ -127,6 +135,7 @@
 | **경기 시작은 관리자만** | `startAt`, `endAt`, 새 `round`·`mapSeed`, `status = countdown` 은 `admins/{UID} = true` 로 등록된 계정만 쓰기 가능. 방장(방을 먼저 만든 사람)도 시작할 수 없음 |
 | 경기 진행 상태 정리 | 방장은 `playing`·`ended`·`lobby` 같은 상태 정리만 가능 (카운트다운 시작은 불가) |
 | 관리자 목록 보호 | `admins` 는 브라우저에서 쓰기 불가 — Firebase 콘솔에서만 추가/삭제 |
+| 최근 1등 기록 보호 | `history` 는 누구나 읽을 수 있지만(메인 화면 표시용) 관리자만 쓸 수 있음 |
 | 관리자 표시 위조 금지 | 참가자 데이터의 `admin`, `spectator` 는 실제 등록된 관리자만 `true` 가능 |
 | 방장 가로채기 금지 | 현재 방장이 없거나 연결이 끊겼을 때만 방장 변경 가능 |
 | 비정상 값 거부 | 닉네임 1~12자, 캐릭터 id 고정 목록, 경기 시간 180초 고정, 이동 거리 상한(경과 시간 기준), 탈락 후 같은 경기에서 부활 금지 |
