@@ -52,7 +52,7 @@ const DEFAULT_ROOM_ID = "arena";
 
 // 관리자 계정 이메일 — Firebase 콘솔 Authentication에서 직접 만든 계정의 이메일을 넣으세요.
 // 화면에서는 이 계정의 "비밀번호만" 입력하면 관리자로 로그인됩니다.
-const ADMIN_EMAIL = "";
+const ADMIN_EMAIL = "pokepack1010@gmail.com";
 
 // 참가자 계정용 내부 이메일 도메인 (닉네임을 이 주소 형식으로 바꿔 Firebase에 저장합니다. 실제 메일은 보내지 않음)
 // 운영을 시작한 뒤에는 바꾸지 마세요. 바꾸면 기존 닉네임 계정으로 로그인할 수 없습니다.
