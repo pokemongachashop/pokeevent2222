@@ -481,6 +481,8 @@ input[type="password"]:focus { border-color: var(--blue); background: #fff; }
 
 .badge-host { background: var(--yellow); color: var(--navy); border: 2px solid var(--navy); }
 .badge-me { background: var(--blue); color: #fff; }
+.badge-away { background: #e6ebf3; color: var(--muted); }
+.player-list li.is-away { opacity: 0.6; }
 
 .hint { margin: 4px 0 14px; font-size: 13px; color: var(--muted); line-height: 1.5; }
 
@@ -689,11 +691,17 @@ body.board-open #leaderboard:not(.hidden) { display: block; }
   bottom: calc(18px + var(--safe-b));
   transform: translateX(-50%);
   display: grid;
-  grid-template-columns: repeat(3, 66px);
-  grid-template-rows: repeat(2, 62px);
-  gap: 8px;
+  /* 버튼을 키우고 간격을 벌려 옆 버튼이 잘못 눌리지 않게 함 */
+  grid-template-columns: repeat(3, 80px);
+  grid-template-rows: repeat(2, 74px);
+  column-gap: 14px;
+  row-gap: 12px;
   touch-action: none;
 }
+
+/* 버튼 사이 빈 공간을 눌러도 아무 버튼도 눌리지 않음 */
+#controls { pointer-events: none; }
+#controls .dpad { pointer-events: auto; }
 
 .dpad {
   position: relative;
@@ -712,9 +720,9 @@ body.board-open #leaderboard:not(.hidden) { display: block; }
   top: 50%;
   width: 0;
   height: 0;
-  border-left: 12px solid transparent;
-  border-right: 12px solid transparent;
-  border-bottom: 16px solid var(--navy);
+  border-left: 14px solid transparent;
+  border-right: 14px solid transparent;
+  border-bottom: 19px solid var(--navy);
   transform: translate(-50%, -50%) rotate(var(--r, 0deg));
 }
 
@@ -864,7 +872,12 @@ body[data-mode="match"] #net-banner { top: calc(84px + var(--safe-t)); }
 }
 
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
-body[data-mode="match"] #toast { bottom: calc(170px + var(--safe-b)); }
+body[data-mode="match"] #toast { bottom: calc(200px + var(--safe-b)); }
+
+/* 아주 좁은 화면(폭 340px 이하)에서는 조금만 줄임 */
+@media (max-width: 340px) {
+  #controls { grid-template-columns: repeat(3, 72px); grid-template-rows: repeat(2, 68px); column-gap: 12px; }
+}
 
 /* ---------- 작은 화면 ---------- */
 @media (max-width: 420px) {
