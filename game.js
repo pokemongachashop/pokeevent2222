@@ -52,7 +52,7 @@ const DEFAULT_ROOM_ID = "arena";
 
 // 관리자 계정 이메일 — Firebase 콘솔 Authentication에서 직접 만든 계정의 이메일을 넣으세요.
 // 화면에서는 이 계정의 "비밀번호만" 입력하면 관리자로 로그인됩니다.
-const ADMIN_EMAIL = "pokepack1010@gmail.com";
+const ADMIN_EMAIL = "";
 
 // 참가자 계정용 내부 이메일 도메인 (닉네임을 이 주소 형식으로 바꿔 Firebase에 저장합니다. 실제 메일은 보내지 않음)
 // 운영을 시작한 뒤에는 바꾸지 마세요. 바꾸면 기존 닉네임 계정으로 로그인할 수 없습니다.
@@ -64,7 +64,9 @@ const PLAYER_EMAIL_DOMAIN = "players.crossing-arena.example.com";
 const GAME = Object.freeze({
   MAX_PLAYERS: 20,
   MIN_PLAYERS: 2,
-  COUNTDOWN_MS: 10000,      // 경기 시작 전 카운트다운 (보안 규칙의 60초 제한 이내)
+  COUNTDOWN_MS: 5000,       // 경기 시작 전 카운트다운 (보안 규칙의 60초 제한 이내)
+  LATE_JOIN_MS: 3000,       // 출발 신호를 늦게 받은 대기실 참가자도 출발 후 3초까지는 참가 처리
+  AWAY_TTL_MS: 1800000,     // 백그라운드 등으로 연결이 끊긴 참가자를 대기실에 유지하는 시간 (30분)
   PRACTICE_COUNTDOWN_MS: 3000,
   MATCH_MS: 180000,         // 경기 시간 (보안 규칙의 endAt = startAt + 180000 과 같아야 함)
   SYNC_INTERVAL_MS: 300,    // 위치 전송 간격 (250~350ms)
@@ -1061,7 +1063,8 @@ function registerPresence() {
   const keepNode = Boolean(S.match && S.match.participant && (S.mode === "match" || S.mode === "result"));
   const od = onDisconnect(r);
   od.cancel()
-    .then(() => (keepNode ? od.update({ online: false, updatedAt: serverTimestamp() }) : od.remove()))
+    // 연결이 끊겨도(앱 전환·화면 꺼짐) 기록을 지우지 않고 '자리 비움'으로만 표시 → 돌아오면 그대로 대기실 유지
+    .then(() => od.update({ online: false, updatedAt: serverTimestamp() }))
     .catch((e) => console.warn("onDisconnect 등록 실패", e));
   const data = {
     nickname: S.nickname, pokemon: S.charId, online: true, session: S.session, updatedAt: serverTimestamp(),
@@ -1358,6 +1361,56 @@ async function loadHistory() {
   }
 }
 
+/* ---------- 백그라운드 · 새로고침 후 대기실 복귀 ----------
+   휴대폰 브라우저는 백그라운드로 간 탭의 연결을 끊거나 페이지를 다시 불러오기도 합니다.
+   - 연결만 끊긴 경우: Firebase가 자동 재연결 → registerPresence()가 '접속 중'으로 되돌림
+   - 페이지가 새로 열린 경우: 이 탭에서 입장했던 방을 기억해 두었다가 자동으로 다시 입장
+------------------------------------------------------------ */
+const ACTIVE_ROOM_KEY = "pca.activeRoom";
+
+function rememberActiveRoom() {
+  try {
+    sessionStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({ room: S.roomId, spectate: S.adminSpectate, at: Date.now() }));
+  } catch (e) { /* 저장 불가 환경 무시 */ }
+}
+
+function forgetActiveRoom() {
+  try { sessionStorage.removeItem(ACTIVE_ROOM_KEY); } catch (e) { /* 무시 */ }
+}
+
+function readActiveRoom() {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(ACTIVE_ROOM_KEY) || "null");
+    if (!v || !/^[a-z0-9-]{1,20}$/.test(v.room) || Date.now() - num(v.at) > GAME.AWAY_TTL_MS) return null;
+    return v;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function resumeActiveRoom() {
+  const saved = readActiveRoom();
+  if (!saved || S.inRoom || !FIREBASE_READY || !fbAuth) return;
+  const user = fbAuth.currentUser;
+  const admin = isAdminAccount(user);
+  const player = currentPlayerAccount();
+  if (!admin && !(player && player.displayName)) { forgetActiveRoom(); return; }
+  $("input-room").value = saved.room;
+  if (player) $("input-nickname").value = player.displayName;
+  if (!cleanNickname($("input-nickname").value)) $("input-nickname").value = (user && user.displayName) || "관리자";
+  $("input-admin-spectate").checked = Boolean(admin && saved.spectate);
+  await joinRoom();
+  if (S.inRoom) toast("이전에 입장한 대기실에 다시 연결했어요.");
+  else forgetActiveRoom();
+}
+
+// 화면으로 돌아왔을 때 연결을 즉시 다시 시도
+function onReturnToPage() {
+  if (!S.inRoom || S.practice || !db) return;
+  goOnline(db);
+  if (S.connected) registerPresence();
+}
+
 /* ---------- 방 입장 ---------- */
 async function joinRoom() {
   if (S.busy || S.inRoom) return;
@@ -1405,7 +1458,7 @@ async function joinRoom() {
     const players = room.players || {};
     const now = serverNow();
     const mine = players[S.uid] || null;
-    const onlineOthers = Object.entries(players).filter(([id, p]) => id !== S.uid && p && p.online === true && p.spectator !== true);
+    const onlineOthers = Object.entries(players).filter(([id, p]) => id !== S.uid && p && p.spectator !== true && isPresent(p, now));
     const countsAsRacer = !S.adminSpectate;
     if (!mine && countsAsRacer && onlineOthers.length >= GAME.MAX_PLAYERS) throw new UserError(`방이 가득 찼습니다. (최대 ${GAME.MAX_PLAYERS}명)`);
 
@@ -1443,10 +1496,13 @@ async function joinRoom() {
       throw new UserError(await diagnoseJoinFailure(user, e));
     }
 
-    // 진행 중인 경기가 없으면 오래된(연결 끊긴) 참가자 데이터 정리
+    // 진행 중인 경기가 없으면 나간 참가자와 30분 넘게 자리를 비운 참가자 데이터만 정리
     if (!active || (stale && takeHost)) {
       for (const [id, p] of Object.entries(players)) {
-        if (id !== S.uid && p && p.online === false) remove(ref(db, `${roomPath()}/players/${id}`)).catch(() => {});
+        if (id === S.uid || !p || p.online !== false) continue;
+        if (p.cause === "left" || now - num(p.updatedAt) > GAME.AWAY_TTL_MS) {
+          remove(ref(db, `${roomPath()}/players/${id}`)).catch(() => {});
+        }
       }
     }
 
@@ -1459,6 +1515,7 @@ async function joinRoom() {
     attachRoomListeners();
     S.mode = "lobby";
     registerPresence();
+    rememberActiveRoom();
     showScreen("lobby");
   } catch (e) {
     console.error(e);
@@ -1520,6 +1577,20 @@ function onlinePlayers() {
     .sort((a, b) => num(a.joinedAt, 9e15) - num(b.joinedAt, 9e15) || a.uid.localeCompare(b.uid));
 }
 
+// 대기실에 있는 사람: 접속 중이거나, 잠깐 자리를 비운 사람(앱 전환 등, 30분 이내)
+function isPresent(p, now) {
+  if (p.online !== false) return true;
+  if (p.cause === "left") return false;
+  return now - num(p.updatedAt) < GAME.AWAY_TTL_MS;
+}
+
+function lobbyPlayers() {
+  const now = serverNow();
+  return [...S.players.values()]
+    .filter((p) => isPresent(p, now))
+    .sort((a, b) => num(a.joinedAt, 9e15) - num(b.joinedAt, 9e15) || a.uid.localeCompare(b.uid));
+}
+
 // 경기에 실제로 뛰는 사람 (진행만 하는 관리자 제외)
 function racers() {
   return onlinePlayers().filter((p) => p.spectator !== true);
@@ -1559,8 +1630,10 @@ function applyRoom() {
     const mine = S.players.get(S.uid) || S.joinSnapshotMine;
     const sameRound = Boolean(mine && mine.round === r.round);
     if (S.isAdmin && S.adminSpectate) enterMatch("spectate", null);
-    else if (now < r.startAt - 400) enterMatch("play", null);
     else if (sameRound && mine.alive === true) enterMatch("play", mine);
+    else if (sameRound) enterMatch("spectate", null);
+    // 출발 신호를 조금 늦게 받아도(백그라운드, 느린 인터넷) 출발 후 몇 초까지는 참가자로 출발
+    else if (now < r.startAt + GAME.LATE_JOIN_MS) enterMatch("play", null);
     else enterMatch("spectate", null);
   }
   S.joinSnapshotMine = null;
@@ -2178,6 +2251,7 @@ function returnToLobby() {
 
 async function leaveRoom({ keepNode = false, message = "" } = {}) {
   S.leaving = true;
+  forgetActiveRoom();
   stopSync();
   const m = S.match;
   detach(S.unsubPlayers);
@@ -2194,7 +2268,7 @@ async function leaveRoom({ keepNode = false, message = "" } = {}) {
         me.survivalMs = Math.round(clamp(elapsedMs(), 0, GAME.MATCH_MS));
         p = update(ref(db, myPath()), Object.assign(statePayload(), { online: false }));
       } else if (m && m.participant && (S.mode === "match" || S.mode === "result")) {
-        p = update(ref(db, myPath()), { online: false, updatedAt: serverTimestamp() });
+        p = update(ref(db, myPath()), { online: false, cause: "left", updatedAt: serverTimestamp() });
       } else {
         p = remove(ref(db, myPath()));
       }
@@ -2334,14 +2408,17 @@ function animatePreview(t, dt) {
 /* ---------- 대기실 ---------- */
 function renderLobby() {
   $("lobby-room").textContent = S.roomId;
-  const list = onlinePlayers();
+  const list = lobbyPlayers();
   const runners = list.filter((p) => p.spectator !== true);
+  const ready = runners.filter((p) => p.online !== false);
+  const away = runners.length - ready.length;
   $("lobby-count").textContent = `${runners.length} / ${GAME.MAX_PLAYERS}`;
   const ul = $("lobby-list");
   ul.textContent = "";
   for (const p of list) {
     const li = document.createElement("li");
-    if (p.uid === S.uid) li.className = "is-me";
+    const isAway = p.online === false;
+    li.className = `${p.uid === S.uid ? "is-me" : ""}${isAway ? " is-away" : ""}`.trim();
     const c = CHAR_BY_ID[p.pokemon] || CHARACTERS[0];
     const dot = document.createElement("span");
     dot.className = "dot";
@@ -2353,6 +2430,12 @@ function renderLobby() {
     ch.className = "p-char";
     ch.textContent = p.spectator === true ? "진행" : c.name;
     li.append(dot, name, ch);
+    if (isAway) {
+      const b = document.createElement("span");
+      b.className = "badge badge-away";
+      b.textContent = "자리 비움";
+      li.append(b);
+    }
     // admin 표시는 보안 규칙이 admins 등록 여부를 검증한 값이라 위조할 수 없음
     if (p.admin === true) {
       const b = document.createElement("span");
@@ -2370,17 +2453,19 @@ function renderLobby() {
   }
 
   const active = roomIsActive();
-  const enough = runners.length >= GAME.MIN_PLAYERS;
-  const adminHere = list.some((p) => p.admin === true);
+  const enough = ready.length >= GAME.MIN_PLAYERS;
+  const adminHere = list.some((p) => p.admin === true && p.online !== false);
+  const sec = Math.round(GAME.COUNTDOWN_MS / 1000);
   show("btn-start", S.isAdmin);
   $("btn-start").disabled = !enough || active;
   let hint;
   if (active) hint = "이전 경기가 정리되는 중입니다. 잠시만 기다려 주세요.";
   else if (S.isAdmin) hint = enough
-    ? "모두 모이면 경기 시작을 눌러 주세요. 10초 카운트다운 후 출발합니다."
-    : `참가자가 ${GAME.MIN_PLAYERS}명 이상 모이면 경기를 시작할 수 있어요.`;
-  else if (adminHere) hint = "관리자가 경기를 시작하면 10초 카운트다운 후 자동으로 출발합니다.";
+    ? `모두 모이면 경기 시작을 눌러 주세요. ${sec}초 카운트다운 후 출발합니다.`
+    : `접속 중인 참가자가 ${GAME.MIN_PLAYERS}명 이상이어야 경기를 시작할 수 있어요.`;
+  else if (adminHere) hint = `관리자가 경기를 시작하면 ${sec}초 카운트다운 후 자동으로 출발합니다. 시작 전에는 게임 화면을 켜 두세요.`;
   else hint = "아직 관리자가 대기실에 없습니다. 관리자가 입장해 경기를 시작할 때까지 기다려 주세요.";
+  if (away > 0) hint += ` (자리 비움 ${away}명은 게임 화면으로 돌아와야 경기에 참가합니다)`;
   $("lobby-hint").textContent = hint;
   updateLobbyScene(runners);
 }
@@ -2673,6 +2758,13 @@ function bindInput() {
   }
   $("controls").addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
   document.addEventListener("gesturestart", (e) => e.preventDefault());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") onReturnToPage();
+  });
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) onReturnToPage();
+  });
+  window.addEventListener("online", onReturnToPage);
 }
 
 function bindButtons() {
@@ -2732,6 +2824,7 @@ function init() {
       if (player && player.displayName && !cleanNickname($("input-nickname").value)) $("input-nickname").value = player.displayName;
       refreshSessionUi();
       refreshAdminUi();
+      resumeActiveRoom();
     });
   } else {
     show("admin-box", false);
