@@ -21,25 +21,13 @@ import {
 // Firebase 콘솔 > 프로젝트 설정 > 일반 > 내 앱(웹 앱)의 "SDK 설정 및 구성"에서 복사한 값을 붙여 넣으세요.
 // 이 값은 공개되어도 되는 "식별용" 값입니다. 데이터베이스 보안은 반드시 Firebase 보안 규칙으로 지켜야 합니다.
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyBRvtClcXst_FXLjaLXtGFU0IbWUcQ-M2w",
-
-
-  authDomain: "pokeevent2222-f3c1b.firebaseapp.com",
-
-
-  databaseURL: "https://pokeevent2222-f3c1b-default-rtdb.asia-southeast1.firebasedatabase.app",
-
-
-  projectId: "pokeevent2222-f3c1b",
-
-
-  storageBucket: "pokeevent2222-f3c1b.firebasestorage.app",
-
-
-  messagingSenderId: "635893544084",
-
-
-  appId: "1:635893544084:web:e04693e0f4cda443833081"
+  apiKey: "AIzaSyCJ2X1RSF_7jUWg5n5aAadjE6CMf9kAkQA",
+  authDomain: "pokeevent2222-ea24f.firebaseapp.com",
+  databaseURL: "https://pokeevent2222-ea24f-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "pokeevent2222-ea24f",
+  storageBucket: "pokeevent2222-ea24f.firebasestorage.app",
+  messagingSenderId: "170779995351",
+  appId: "1:170779995351:web:c625b9aadfeaed53fd9492"
 };
 
 // 결과 화면 "관리자에게 문의하기" 버튼이 열 주소입니다.
